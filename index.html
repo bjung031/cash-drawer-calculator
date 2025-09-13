@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cash Drawer Calculator (USD)</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #error {
+            color: red;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        h2 {
+            margin-top: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 10px;
+        }
+        input[type="number"] {
+            width: 100px;
+        }
+        button {
+            margin-right: 10px;
+            padding: 10px 20px;
+        }
+        #result {
+            margin-top: 20px;
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        #checkoutScreen label {
+            margin-top: 20px;
+        }
+        #removalList {
+            margin-top: 20px;
+        }
+        #drawerSelector {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        #drawerSelector button {
+            padding: 5px 10px;
+            margin: 0 10px;
+        }
+        #summaryScreen {
+            margin-top: 20px;
+        }
+        #summaryScreen table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        #summaryScreen th, #summaryScreen td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        #summaryScreen th {
+            background-color: #f2f2f2;
+        }
+        .above {
+            color: red;
+        }
+        .below {
+            color: green;
+        }
+        .at-target {
+            color: black;
+        }
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            input[type="number"] {
+                width: 80px;
+            }
+            button {
+                display: block;
+                width: 100%;
+                margin: 10px 0;
+            }
+            #drawerSelector button {
+                width: auto;
+                margin: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="drawerSelector">
+        <button onclick="switchDrawer(-1)" id="prevDrawer">&larr;</button>
+        <h1 id="drawerTitle">Drawer 1</h1>
+        <button onclick="switchDrawer(1)" id="nextDrawer">&rarr;</button>
+    </div>
+    <div id="inputScreen">
+        <div id="error"></div>
+        <form id="cashForm">
+            <h2>Target State</h2>
+            <label>Target Drawer State: <input type="number" min="0" step="0.01" id="targetInput" value="100.00"></label>
+            <h2>Banknotes (Count)</h2>
+            <label>$100: <input type="number" min="0" id="b100"></label>
+            <label>$50: <input type="number" min="0" id="b50"></label>
+            <label>$20: <input type="number" min="0" id="b20"></label>
+            <label>$10: <input type="number" min="0" id="b10"></label>
+            <label>$5: <input type="number" min="0" id="b5"></label>
+            <label>$2: <input type="number" min="0" id="b2"></label>
+            <label>$1: <input type="number" min="0" id="b1"></label>
+
+            <h2>Coins (Loose Count)</h2>
+            <label>Dollars ($1.00): <input type="number" min="0" id="c100"></label>
+            <label>Half-Dollars ($0.50): <input type="number" min="0" id="c050"></label>
+            <label>Quarters ($0.25): <input type="number" min="0" id="c025"></label>
+            <label>Dimes ($0.10): <input type="number" min="0" id="c010"></label>
+            <label>Nickels ($0.05): <input type="number" min="0" id="c005"></label>
+            <label>Pennies ($0.01): <input type="number" min="0" id="c001"></label>
+
+            <h2>Rolls</h2>
+            <label>Quarter Rolls Count: <input type="number" min="0" id="rq"></label>
+            <label>Value per Quarter Roll: <input type="number" min="0" step="0.01" id="rvq" value="10.00"></label>
+            <label>Dime Rolls Count: <input type="number" min="0" id="rd"></label>
+            <label>Value per Dime Roll: <input type="number" min="0" step="0.01" id="rvd" value="5.00"></label>
+            <label>Nickel Rolls Count: <input type="number" min="0" id="rn"></label>
+            <label>Value per Nickel Roll: <input type="number" min="0" step="0.01" id="rvn" value="2.00"></label>
+            <label>Penny Rolls Count: <input type="number" min="0" id="rp"></label>
+            <label>Value per Penny Roll: <input type="number" min="0" step="0.01" id="rvp" value="0.50"></label>
+
+            <button type="button" onclick="calculateTotal()">Calculate</button>
+            <button type="button" onclick="clearForm()">Clear</button>
+            <button type="button" onclick="goToCheckout()">Drawer Checkout</button>
+            <button type="button" onclick="goToSummary()">Summary Dashboard</button>
+        </form>
+        <div id="result"></div>
+    </div>
+
+    <div id="checkoutScreen" style="display:none;">
+        <h1>Drawer Checkout</h1>
+        <div>Total Cash: $<span id="totalCash"></span></div>
+        <div id="targetStatus"></div>
+        <label>Default Drawer State: <input type="number" min="0" step="0.01" id="target" value="100.00"></label>
+        <label><input type="checkbox" id="useRolls"> Include Coin Rolls in Removal Calculation</label>
+        <button type="button" onclick="recalculateRemoval()">Recalculate</button>
+        <div id="removalList"></div>
+        <button type="button" onclick="goBack()">Back</button>
+    </div>
+
+    <div id="summaryScreen" style="display:none;">
+        <h1>Summary Dashboard</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Drawer</th>
+                    <th>Total Cash</th>
+                    <th>Target State</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="summaryTable"></tbody>
+        </table>
+        <button type="button" onclick="goBackFromSummary()">Back</button>
+    </div>
+
+    <script>
+        let currentDrawer = 1;
+        const maxDrawers = 3;
+        let drawers = {
+            1: { values: { rvq: 10.00, rvd: 5.00, rvn: 2.00, rvp: 0.50 }, total: 0, target: 100.00, useRolls: false },
+            2: { values: { rvq: 10.00, rvd: 5.00, rvn: 2.00, rvp: 0.50 }, total: 0, target: 100.00, useRolls: false },
+            3: { values: { rvq: 10.00, rvd: 5.00, rvn: 2.00, rvp: 0.50 }, total: 0, target: 100.00, useRolls: false }
+        };
+
+        function updateDrawerDisplay() {
+            document.getElementById('drawerTitle').innerText = `Drawer ${currentDrawer}`;
+            document.getElementById('prevDrawer').disabled = currentDrawer === 1;
+            document.getElementById('nextDrawer').disabled = currentDrawer === maxDrawers;
+
+            // Restore drawer data
+            const currentValues = drawers[currentDrawer].values;
+            const inputs = ['b100', 'b50', 'b20', 'b10', 'b5', 'b2', 'b1', 'c100', 'c050', 'c025', 'c010', 'c005', 'c001', 'rq', 'rvq', 'rd', 'rvd', 'rn', 'rvn', 'rp', 'rvp'];
+            inputs.forEach(id => {
+                document.getElementById(id).value = currentValues[id] !== undefined ? currentValues[id] : '';
+            });
+            document.getElementById('targetInput').value = drawers[currentDrawer].target;
+            document.getElementById('result').innerHTML = drawers[currentDrawer].total ? `Total Cash: $${drawers[currentDrawer].total.toFixed(2)}` : '';
+        }
+
+        function updateCheckoutDisplay() {
+            document.getElementById('totalCash').innerText = drawers[currentDrawer].total.toFixed(2);
+            document.getElementById('target').value = drawers[currentDrawer].target;
+            document.getElementById('useRolls').checked = drawers[currentDrawer].useRolls;
+            recalculateRemoval();
+        }
+
+        function updateSummaryDisplay() {
+            const tableBody = document.getElementById('summaryTable');
+            tableBody.innerHTML = '';
+            for (let i = 1; i <= maxDrawers; i++) {
+                const total = drawers[i].total;
+                const target = drawers[i].target;
+                const difference = total - target;
+                let status, statusClass;
+                if (Math.abs(difference) < 0.01) {
+                    status = 'At Target';
+                    statusClass = 'at-target';
+                } else if (difference > 0) {
+                    status = `$${difference.toFixed(2)} Above`;
+                    statusClass = 'above';
+                } else {
+                    status = `$${Math.abs(difference).toFixed(2)} Below`;
+                    statusClass = 'below';
+                }
+                tableBody.innerHTML += `
+                    <tr>
+                        <td>Drawer ${i}</td>
+                        <td>$${total.toFixed(2)}</td>
+                        <td>$${target.toFixed(2)}</td>
+                        <td class="${statusClass}">${status}</td>
+                    </tr>
+                `;
+            }
+        }
+
+        function switchDrawer(direction) {
+            calculateTotal(true); // Silent calculate to save data
+            currentDrawer = Math.max(1, Math.min(maxDrawers, currentDrawer + direction));
+            updateDrawerDisplay();
+            if (document.getElementById('checkoutScreen').style.display === 'block') {
+                updateCheckoutDisplay();
+            } else if (document.getElementById('summaryScreen').style.display === 'block') {
+                updateSummaryDisplay();
+            }
+        }
+
+        function calculateTotal(silent = false) {
+            const errorDiv = document.getElementById('error');
+            const resultDiv = document.getElementById('result');
+            if (!silent) {
+                errorDiv.innerHTML = '';
+                resultDiv.innerHTML = '';
+            }
+
+            let hasError = false;
+            const inputs = [
+                { id: 'b100', denom: 100 },
+                { id: 'b50', denom: 50 },
+                { id: 'b20', denom: 20 },
+                { id: 'b10', denom: 10 },
+                { id: 'b5', denom: 5 },
+                { id: 'b2', denom: 2 },
+                { id: 'b1', denom: 1 },
+                { id: 'c100', denom: 1.00 },
+                { id: 'c050', denom: 0.50 },
+                { id: 'c025', denom: 0.25 },
+                { id: 'c010', denom: 0.10 },
+                { id: 'c005', denom: 0.05 },
+                { id: 'c001', denom: 0.01 },
+                { id: 'rq', denom: 1 },
+                { id: 'rd', denom: 1 },
+                { id: 'rn', denom: 1 },
+                { id: 'rp', denom: 1 },
+                { id: 'rvq', denom: 1 },
+                { id: 'rvd', denom: 1 },
+                { id: 'rvn', denom: 1 },
+                { id: 'rvp', denom: 1 }
+            ];
+
+            const values = {};
+            inputs.forEach(input => {
+                const val = document.getElementById(input.id).value;
+                if (val !== '' && isNaN(parseFloat(val))) {
+                    hasError = true;
+                }
+                values[input.id] = val === '' ? 0 : parseFloat(val);
+            });
+
+            const targetVal = document.getElementById('targetInput').value;
+            if (targetVal !== '' && isNaN(parseFloat(targetVal))) {
+                hasError = true;
+            }
+            const target = targetVal === '' ? 100.00 : parseFloat(targetVal);
+
+            if (hasError && !silent) {
+                errorDiv.innerHTML = 'Error: One or more fields contain invalid values. Please enter numbers only.';
+                return;
+            }
+
+            let total = 0;
+
+            total += values['b100'] * 100;
+            total += values['b50'] * 50;
+            total += values['b20'] * 20;
+            total += values['b10'] * 10;
+            total += values['b5'] * 5;
+            total += values['b2'] * 2;
+            total += values['b1'] * 1;
+
+            total += values['c100'] * 1.00;
+            total += values['c050'] * 0.50;
+            total += values['c025'] * 0.25;
+            total += values['c010'] * 0.10;
+            total += values['c005'] * 0.05;
+            total += values['c001'] * 0.01;
+
+            total += values['rq'] * values['rvq'];
+            total += values['rd'] * values['rvd'];
+            total += values['rn'] * values['rvn'];
+            total += values['rp'] * values['rvp'];
+
+            if (!silent) {
+                resultDiv.innerHTML = `Total Cash: $${total.toFixed(2)}`;
+            }
+
+            drawers[currentDrawer].values = values;
+            drawers[currentDrawer].total = total;
+            drawers[currentDrawer].target = target;
+        }
+
+        function clearForm() {
+            document.getElementById('cashForm').reset();
+            document.getElementById('error').innerHTML = '';
+            document.getElementById('result').innerHTML = '';
+            drawers[currentDrawer].values = { rvq: 10.00, rvd: 5.00, rvn: 2.00, rvp: 0.50 };
+            drawers[currentDrawer].total = 0;
+            drawers[currentDrawer].target = 100.00;
+            document.getElementById('targetInput').value = '100.00';
+            document.getElementById('rvq').value = '10.00';
+            document.getElementById('rvd').value = '5.00';
+            document.getElementById('rvn').value = '2.00';
+            document.getElementById('rvp').value = '0.50';
+        }
+
+        function goToCheckout() {
+            calculateTotal();
+            const errorDiv = document.getElementById('error');
+            if (errorDiv.innerHTML !== '') return;
+
+            document.getElementById('inputScreen').style.display = 'none';
+            document.getElementById('checkoutScreen').style.display = 'block';
+            document.getElementById('totalCash').innerText = drawers[currentDrawer].total.toFixed(2);
+            document.getElementById('target').value = drawers[currentDrawer].target;
+            document.getElementById('useRolls').checked = drawers[currentDrawer].useRolls;
+            recalculateRemoval();
+        }
+
+        function goToSummary() {
+            calculateTotal(true);
+            document.getElementById('inputScreen').style.display = 'none';
+            document.getElementById('summaryScreen').style.display = 'block';
+            updateSummaryDisplay();
+        }
+
+        function goBack() {
+            document.getElementById('inputScreen').style.display = 'block';
+            document.getElementById('checkoutScreen').style.display = 'none';
+            updateDrawerDisplay();
+        }
+
+        function goBackFromSummary() {
+            document.getElementById('inputScreen').style.display = 'block';
+            document.getElementById('summaryScreen').style.display = 'none';
+            updateDrawerDisplay();
+        }
+
+        function recalculateRemoval() {
+            const removalList = document.getElementById('removalList');
+            removalList.innerHTML = '';
+
+            const targetInput = document.getElementById('target');
+            let target = parseFloat(targetInput.value);
+            if (isNaN(target) || target < 0) {
+                removalList.innerHTML = 'Error: Invalid target value. Please enter a positive number.';
+                return;
+            }
+
+            const useRolls = document.getElementById('useRolls').checked;
+            const excess = drawers[currentDrawer].total - target;
+            
+            // Update status display
+            const statusDiv = document.getElementById('targetStatus');
+            if (Math.abs(excess) < 0.01) {
+                statusDiv.innerHTML = 'Drawer is at target state.';
+                statusDiv.className = 'at-target';
+            } else if (excess > 0) {
+                statusDiv.innerHTML = `Drawer is $${excess.toFixed(2)} above target state.`;
+                statusDiv.className = 'above';
+            } else {
+                statusDiv.innerHTML = `Drawer is $${Math.abs(excess).toFixed(2)} below target state.`;
+                statusDiv.className = 'below';
+            }
+
+            if (excess <= 0) {
+                removalList.innerHTML = 'No removal needed. Drawer total is at or below target.';
+                return;
+            }
+
+            const items = [
+                { name: '$100 bills', denom: 100, count: drawers[currentDrawer].values['b100'] },
+                { name: '$50 bills', denom: 50, count: drawers[currentDrawer].values['b50'] },
+                { name: '$20 bills', denom: 20, count: drawers[currentDrawer].values['b20'] },
+                { name: '$10 bills', denom: 10, count: drawers[currentDrawer].values['b10'] },
+                { name: '$5 bills', denom: 5, count: drawers[currentDrawer].values['b5'] },
+                { name: '$2 bills', denom: 2, count: drawers[currentDrawer].values['b2'] },
+                { name: '$1 bills', denom: 1, count: drawers[currentDrawer].values['b1'] },
+                { name: 'Dollar coins', denom: 1.00, count: drawers[currentDrawer].values['c100'] },
+                { name: 'Half-Dollar coins', denom: 0.50, count: drawers[currentDrawer].values['c050'] },
+                { name: 'Quarters', denom: 0.25, count: drawers[currentDrawer].values['c025'] },
+                { name: 'Dimes', denom: 0.10, count: drawers[currentDrawer].values['c010'] },
+                { name: 'Nickels', denom: 0.05, count: drawers[currentDrawer].values['c005'] },
+                { name: 'Pennies', denom: 0.01, count: drawers[currentDrawer].values['c001'] }
+            ];
+
+            if (useRolls) {
+                items.push(
+                    { name: 'Quarter rolls', denom: drawers[currentDrawer].values['rvq'], count: drawers[currentDrawer].values['rq'] },
+                    { name: 'Dime rolls', denom: drawers[currentDrawer].values['rvd'], count: drawers[currentDrawer].values['rd'] },
+                    { name: 'Nickel rolls', denom: drawers[currentDrawer].values['rvn'], count: drawers[currentDrawer].values['rn'] },
+                    { name: 'Penny rolls', denom: drawers[currentDrawer].values['rvp'], count: drawers[currentDrawer].values['rp'] }
+                );
+            }
+
+            items.sort((a, b) => b.denom - a.denom);
+
+            let remaining = excess;
+            const removals = [];
+
+            for (let item of items) {
+                if (item.denom <= 0 || item.count === 0) continue;
+                const maxTake = Math.floor(remaining / item.denom);
+                const take = Math.min(maxTake, item.count);
+                if (take > 0) {
+                    removals.push(`Remove ${take} ${item.name} ($${ (take * item.denom).toFixed(2) })`);
+                    remaining -= take * item.denom;
+                    remaining = Math.round(remaining * 100) / 100;
+                }
+                if (remaining <= 0) break;
+            }
+
+            if (remaining > 0.01) {
+                removalList.innerHTML = 'Cannot make exact amount with available items. Remaining: $' + remaining.toFixed(2);
+            } else {
+                removalList.innerHTML = '<ul><li>' + removals.join('</li><li>') + '</li></ul>';
+            }
+
+            drawers[currentDrawer].target = target;
+            drawers[currentDrawer].useRolls = useRolls;
+        }
+
+        updateDrawerDisplay();
+    </script>
+</body>
+</html>
