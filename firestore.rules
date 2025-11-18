@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -----------------------------------------------------------------
+    // 1. USER DOC – only the owner can read/write
+    // -----------------------------------------------------------------
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // -----------------------------------------------------------------
+    // 2. USERNAME LOOKUP
+    //    • public read (needed for login-by-username)
+    //    • create/update only by the user whose UID is stored in the doc
+    // -----------------------------------------------------------------
+    match /usernames/{username} {
+      allow read: if true;
+
+      // CREATE – the data we are writing must contain the caller’s UID
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.keys().hasAll(['uid', 'email', 'displayName'])
+                    && request.resource.data.email is string
+                    && request.resource.data.displayName is string;
+
+      // UPDATE – the doc already exists, so we compare with existing data
+      allow update: if request.auth != null
+                    && resource.data.uid == request.auth.uid;
+
+      // DELETE – never allowed
+      allow delete: if false;
+    }
+
+    // -----------------------------------------------------------------
+    // 3. DENY EVERYTHING ELSE
+    // -----------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
