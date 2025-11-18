@@ -6,28 +6,48 @@ const admin = require("firebase-admin");
 // 1. Initialise Firebase Admin (required for Firestore)
 admin.initializeApp();
 
-// 2. **Stripe is created inside the handler** – the secret is guaranteed to exist
-//    (process.env.STRIPE_SECRET_KEY is injected by the `secrets` field)
+// 2. Stripe is created inside the handler after secrets are available
 exports.stripeWebhook = onRequest(
   {
     region: "us-central1",
     secrets: ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
   },
   async (req, res) => {
-    // ---- Create Stripe client *after* secrets are available ----
-    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+    // Only allow POST
+    if (req.method !== "POST") {
+      return res.status(405).send("Method Not Allowed");
+    }
 
-    const sig = req.headers["stripe-signature"];
+    // Ensure secrets are present
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-    if (!webhookSecret) {
-      console.error("STRIPE_WEBHOOK_SECRET missing");
+    if (!stripeSecretKey || !webhookSecret) {
+      console.error("Missing STRIPE_SECRET_KEY or STRIPE_WEBHOOK_SECRET");
       return res.status(500).send("Server mis-configured");
+    }
+
+    // Create Stripe client *after* secrets are available
+    const stripe = require("stripe")(stripeSecretKey);
+
+    // Get signature header
+    const sig = req.headers["stripe-signature"] || req.get?.("stripe-signature");
+    if (!sig) {
+      console.error("Missing stripe-signature header");
+      return res.status(400).send("Missing stripe-signature header");
+    }
+
+    // IMPORTANT: use the raw body for signature verification
+    // Firebase functions must be configured to preserve rawBody (firebase.json functions.rawBody: true).
+    // req.rawBody should be a Buffer; if it's missing, fail rather than using parsed body.
+    const rawBody = req.rawBody;
+    if (!rawBody) {
+      console.error("req.rawBody is undefined. Ensure firebase.json has functions.rawBody: true");
+      return res.status(400).send("Raw body unavailable");
     }
 
     let event;
     try {
-      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
       console.log("Webhook received:", event.type);
     } catch (err) {
       console.error("Signature verification failed:", err.message);
@@ -68,7 +88,7 @@ exports.stripeWebhook = onRequest(
     }
 
     // Acknowledge any other event
-    res.json({ received: true });
+    return res.json({ received: true });
   }
 );
 
