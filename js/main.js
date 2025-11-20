@@ -95,7 +95,7 @@ function showScreen(screenId) {
         const dark = document.getElementById('darkModeToggle');
         if (tier==='guest') { if(settings) settings.style.display='none'; if(dark) dark.disabled=true; }
         else { if(settings) settings.style.display='block'; if(dark) dark.disabled=false; }
-        dark.checked = darkMode;
+        if (dark && window.getDarkMode) dark.checked = window.getDarkMode();
     }
 }
 
@@ -271,8 +271,8 @@ document.getElementById('targetInput')?.addEventListener('input',()=>{
     safeSave();
 });
 
-/* ==================== SIMPLE STRIPE LINK UPGRADE ==================== */
-/* ==================== UPGRADE BUTTON – PAYMENT LINK ==================== */
+/* ==================== STRIPE API UPGRADE ==================== */
+/* ==================== UPGRADE BUTTON – API CHECKOUT ==================== */
 function attachUpgradeButton() {
     const btn = document.getElementById('upgradeToSupporterBtn');
     if (!btn) return;
@@ -281,7 +281,7 @@ function attachUpgradeButton() {
     const newBtn = btn.cloneNode(true);
     btn.replaceWith(newBtn);
 
-    newBtn.addEventListener('click', () => {
+    newBtn.addEventListener('click', async () => {
         const user = firebase.auth().currentUser;
         if (!user) {
             alert('Please log in to upgrade.');
@@ -289,17 +289,30 @@ function attachUpgradeButton() {
             return;
         }
 
-        // Build dynamic payment link
-        const baseUrl = 'https://buy.stripe.com/test_dRm14n9RS4pYbcxfj84Ni00';
-        const uid = user.uid;
-        const email = encodeURIComponent(user.email || '');
-        const successUrl = encodeURIComponent('https://drawercheckout.com/success.html');
-        const cancelUrl = encodeURIComponent('https://drawercheckout.com/');
+        try {
+            // Show loading state
+            newBtn.disabled = true;
+            newBtn.textContent = 'Creating checkout session...';
 
-        const fullUrl = `${baseUrl}?client_reference_id=${uid}&prefilled_email=${email}&success_url=${successUrl}&cancel_url=${cancelUrl}`;
+            // Call Firebase Cloud Function to create Checkout Session
+            const createCheckoutSession = firebase.functions().httpsCallable('createCheckoutSession');
+            const result = await createCheckoutSession({
+                userId: user.uid,
+                email: user.email
+            });
 
-        // Redirect to Stripe
-        window.location.href = fullUrl;
+            // Redirect to Stripe Checkout
+            if (result.data && result.data.url) {
+                window.location.href = result.data.url;
+            } else {
+                throw new Error('No checkout URL received');
+            }
+        } catch (error) {
+            console.error('Error creating checkout session:', error);
+            alert('Failed to create checkout session. Please try again.');
+            newBtn.disabled = false;
+            newBtn.textContent = 'Upgrade to Supporter';
+        }
     });
 }
 
@@ -342,5 +355,6 @@ document.getElementById('privacyBackBtn')?.addEventListener('click',()=>showScre
 document.getElementById('loginBtn')?.addEventListener('click',login);
 document.getElementById('signupBtn')?.addEventListener('click',signup);
 document.getElementById('deleteAccountBtn')?.addEventListener('click',deleteAccount);
+document.getElementById('darkModeToggle')?.addEventListener('change', window.toggleDarkMode);
 document.getElementById('target')?.addEventListener('input',recalculateRemoval);
-document.getElementById('target')?.addEventListener(' Loan',recalculateRemoval);
+document.getElementById('target')?.addEventListener('change',recalculateRemoval);

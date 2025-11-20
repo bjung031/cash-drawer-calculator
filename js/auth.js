@@ -34,9 +34,12 @@ function applyDarkMode() {
     if (toggle) toggle.checked = darkMode;
 }
 window.applyDarkMode = applyDarkMode; // Expose globally
+window.getDarkMode = () => darkMode; // Expose getter
 window.toggleDarkMode = () => {
     if (window.userTier === 'guest') {
         alert('Dark mode is for logged-in users only.');
+        const toggle = document.getElementById('darkModeToggle');
+        if (toggle) toggle.checked = false;
         return;
     }
     darkMode = !darkMode;

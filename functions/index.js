@@ -80,7 +80,17 @@ async function handleCheckoutCompletion(session, stripeClient) {
     );
     console.log(`Linked Stripe customer to Firebase user "${userId}": ${session.customer}`);
 
-    // Fetch subscription info if available
+    // Immediately upgrade user to supporter upon successful checkout
+    await admin.firestore().collection(USERS_PATH).doc(userId).set(
+      {
+        tier: "supporter",
+        upgradedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    console.log(`User "${userId}" upgraded to "supporter" after checkout completion.`);
+
+    // Fetch subscription info if available for future updates
     if (session.subscription) {
       const subscription = await stripeClient.subscriptions.retrieve(session.subscription);
       await handleSubscriptionUpdate(subscription);
@@ -111,7 +121,7 @@ async function handleSubscriptionUpdate(subscription) {
     const userId = customersSnapshot.docs[0].id; // Firebase user ID
 
     // Update the user's tier in the `users` collection based on subscription status
-    if (subscriptionStatus === "active") {
+    if (subscriptionStatus === "active" || subscriptionStatus === "trialing") {
       await admin.firestore().collection(USERS_PATH).doc(userId).set(
         {
           tier: "supporter", // Upgrade user's tier
@@ -124,16 +134,76 @@ async function handleSubscriptionUpdate(subscription) {
       // Downgrade user if subscription is canceled or not active
       await admin.firestore().collection(USERS_PATH).doc(userId).set(
         {
-          tier: "guest", // Downgrade to guest or base tier
+          tier: "user", // Downgrade to user tier (not guest)
         },
         { merge: true }
       );
-      console.log(`User "${userId}" tier downgraded due to subscription status: ${subscriptionStatus}.`);
+      console.log(`User "${userId}" tier downgraded to "user" due to subscription status: ${subscriptionStatus}.`);
     }
   } catch (error) {
     console.error("Failed to handle subscription update:", error.message);
   }
 }
+
+// Cloud Function to create a Stripe Checkout Session
+exports.createCheckoutSession = onRequest(
+  {
+    region: "us-central1",
+    secrets: ["STRIPE_SECRET_KEY", "STRIPE_PRICE_ID"],
+    cors: true, // Enable CORS for frontend calls
+  },
+  async (req, res) => {
+    // Enable CORS
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, POST');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') {
+      return res.status(204).send('');
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).send("Method Not Allowed");
+    }
+
+    try {
+      const { userId, email } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({ error: "Missing userId" });
+      }
+
+      // Initialize Stripe
+      const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
+
+      // Get Price ID from environment variable or use default
+      const priceId = process.env.STRIPE_PRICE_ID || "price_1QY8XzIBG9c10siBCf2aZITZ";
+
+      // Create Checkout Session
+      const session = await stripeClient.checkout.sessions.create({
+        mode: "subscription",
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        client_reference_id: userId,
+        customer_email: email,
+        success_url: "https://drawercheckout.com/success.html",
+        cancel_url: "https://drawercheckout.com/",
+      });
+
+      console.log(`Checkout session created for user ${userId}: ${session.id}`);
+      res.json({ sessionId: session.id, url: session.url });
+    } catch (error) {
+      console.error("Error creating checkout session:", error.message);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 // Set global options for Firebase functions (optimize cold starts)
 setGlobalOptions({ maxInstances: 10 });
