@@ -95,7 +95,7 @@ function showScreen(screenId) {
         const dark = document.getElementById('darkModeToggle');
         if (tier==='guest') { if(settings) settings.style.display='none'; if(dark) dark.disabled=true; }
         else { if(settings) settings.style.display='block'; if(dark) dark.disabled=false; }
-        dark.checked = darkMode;
+        if (dark && window.getDarkMode) dark.checked = window.getDarkMode();
     }
 }
 
@@ -342,5 +342,6 @@ document.getElementById('privacyBackBtn')?.addEventListener('click',()=>showScre
 document.getElementById('loginBtn')?.addEventListener('click',login);
 document.getElementById('signupBtn')?.addEventListener('click',signup);
 document.getElementById('deleteAccountBtn')?.addEventListener('click',deleteAccount);
+document.getElementById('darkModeToggle')?.addEventListener('change', window.toggleDarkMode);
 document.getElementById('target')?.addEventListener('input',recalculateRemoval);
-document.getElementById('target')?.addEventListener(' Loan',recalculateRemoval);
+document.getElementById('target')?.addEventListener('change',recalculateRemoval);
