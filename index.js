@@ -1,96 +1,139 @@
-// functions/index.js
 const { onRequest } = require("firebase-functions/v2/https");
+const { firestore } = require("firebase-functions");
 const { setGlobalOptions } = require("firebase-functions/v2");
 const admin = require("firebase-admin");
+const stripe = require("stripe"); // Import Stripe dynamically later
 
-// 1. Initialise Firebase Admin (required for Firestore)
+// Initialize Firebase Admin SDK
 admin.initializeApp();
 
-// 2. Stripe is created inside the handler after secrets are available
+// Firestore collection paths
+const CUSTOMERS_PATH = "/customers";
+const USERS_PATH = "/users";
+
+// Automatically triggered Firebase Function for Stripe Webhooks
 exports.stripeWebhook = onRequest(
   {
     region: "us-central1",
     secrets: ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
+    rawBody: true, // Ensures raw body is preserved for Stripe signature verification
   },
   async (req, res) => {
-    // Only allow POST
-    if (req.method !== "POST") {
-      return res.status(405).send("Method Not Allowed");
-    }
+    if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
-    // Ensure secrets are present
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    if (!stripeSecretKey || !webhookSecret) {
-      console.error("Missing STRIPE_SECRET_KEY or STRIPE_WEBHOOK_SECRET");
-      return res.status(500).send("Server mis-configured");
-    }
+    // Import Stripe library dynamically in handler
+    const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
-    // Create Stripe client *after* secrets are available
-    const stripe = require("stripe")(stripeSecretKey);
-
-    // Get signature header
-    const sig = req.headers["stripe-signature"] || req.get?.("stripe-signature");
+    const sig = req.headers["stripe-signature"];
     if (!sig) {
-      console.error("Missing stripe-signature header");
+      console.error("Missing stripe-signature header.");
       return res.status(400).send("Missing stripe-signature header");
-    }
-
-    // IMPORTANT: use the raw body for signature verification
-    // Firebase functions must be configured to preserve rawBody (firebase.json functions.rawBody: true).
-    // req.rawBody should be a Buffer; if it's missing, fail rather than using parsed body.
-    const rawBody = req.rawBody;
-    if (!rawBody) {
-      console.error("req.rawBody is undefined. Ensure firebase.json has functions.rawBody: true");
-      return res.status(400).send("Raw body unavailable");
     }
 
     let event;
     try {
-      event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
-      console.log("Webhook received:", event.type);
-    } catch (err) {
-      console.error("Signature verification failed:", err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
+      // Verify Stripe signature and construct event
+      event = stripeClient.webhooks.constructEvent(req.rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
+      console.log(`Webhook event received: ${event.type}`);
+    } catch (error) {
+      console.error("Stripe webhook signature verification failed:", error.message);
+      return res.status(400).send(`Webhook Error: ${error.message}`);
     }
 
-    // ---- Handle checkout.session.completed ----
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      const uid = session.client_reference_id;
+    const eventData = event.data.object;
 
-      if (!uid) {
-        console.error("Missing client_reference_id");
-        return res.status(400).send("Missing UID");
-      }
-
-      try {
-        await admin
-          .firestore()
-          .collection("users")
-          .doc(uid)
-          .set(
-            {
-              tier: "supporter",
-              upgradedAt: admin.firestore.FieldValue.serverTimestamp(),
-              stripeCustomerId: session.customer,
-              stripeSessionId: session.id,
-            },
-            { merge: true }
-          );
-
-        console.log("User upgraded to supporter:", uid);
-        return res.json({ success: true });
-      } catch (err) {
-        console.error("Firestore write failed:", err);
-        return res.status(500).send("Upgrade failed");
-      }
+    // Handle different Stripe event types
+    switch (event.type) {
+      case "checkout.session.completed":
+        // Triggered on checkout completion
+        await handleCheckoutCompletion(eventData, stripeClient);
+        break;
+      case "customer.subscription.updated":
+      case "customer.subscription.created":
+      case "customer.subscription.deleted":
+        // Triggered when a subscription is updated, created, or deleted
+        await handleSubscriptionUpdate(eventData);
+        break;
+      default:
+        console.log(`Unhandled event type: ${event.type}`);
     }
 
-    // Acknowledge any other event
-    return res.json({ received: true });
+    res.json({ received: true });
   }
 );
 
-// Optional: limit max instances (helps with cold starts)
+// Function to handle `checkout.session.completed`
+async function handleCheckoutCompletion(session, stripeClient) {
+  const userId = session.client_reference_id; // Pass this during Checkout Session creation
+  if (!userId) {
+    console.error("Missing client_reference_id in session:", session.id);
+    return;
+  }
+
+  try {
+    // Save Stripe customer ID under the corresponding Firebase user
+    await admin.firestore().collection(CUSTOMERS_PATH).doc(userId).set(
+      {
+        customer_id: session.customer,
+      },
+      { merge: true } // Merge with existing data
+    );
+    console.log(`Linked Stripe customer to Firebase user "${userId}": ${session.customer}`);
+
+    // Fetch subscription info if available
+    if (session.subscription) {
+      const subscription = await stripeClient.subscriptions.retrieve(session.subscription);
+      await handleSubscriptionUpdate(subscription);
+    }
+  } catch (error) {
+    console.error("Failed to handle checkout completion:", error.message);
+  }
+}
+
+// Function to handle subscription updates
+async function handleSubscriptionUpdate(subscription) {
+  const stripeCustomerId = subscription.customer;
+  const subscriptionStatus = subscription.status;
+
+  try {
+    // Find the corresponding Firebase user from the `customers` collection
+    const customersSnapshot = await admin.firestore()
+      .collection(CUSTOMERS_PATH)
+      .where("customer_id", "==", stripeCustomerId)
+      .limit(1)
+      .get();
+
+    if (customersSnapshot.empty) {
+      console.error("No matching Firebase user for Stripe customer:", stripeCustomerId);
+      return;
+    }
+
+    const userId = customersSnapshot.docs[0].id; // Firebase user ID
+
+    // Update the user's tier in the `users` collection based on subscription status
+    if (subscriptionStatus === "active") {
+      await admin.firestore().collection(USERS_PATH).doc(userId).set(
+        {
+          tier: "supporter", // Upgrade user's tier
+          upgradedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true } // Merge with existing data
+      );
+      console.log(`User "${userId}" upgraded to "supporter" due to active subscription.`);
+    } else {
+      // Downgrade user if subscription is canceled or not active
+      await admin.firestore().collection(USERS_PATH).doc(userId).set(
+        {
+          tier: "guest", // Downgrade to guest or base tier
+        },
+        { merge: true }
+      );
+      console.log(`User "${userId}" tier downgraded due to subscription status: ${subscriptionStatus}.`);
+    }
+  } catch (error) {
+    console.error("Failed to handle subscription update:", error.message);
+  }
+}
+
+// Set global options for Firebase functions (optimize cold starts)
 setGlobalOptions({ maxInstances: 10 });
