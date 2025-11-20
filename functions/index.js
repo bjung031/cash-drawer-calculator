@@ -81,23 +81,34 @@ exports.createCheckoutSession = onCall(
             } else {
                 // Create new Stripe customer
                 console.log(`Creating new Stripe customer for user ${userId}`);
-                const customer = await stripeClient.customers.create({
-                    email: email,
-                    metadata: {
-                        firebaseUID: userId,
-                    },
-                });
-                customerId = customer.id;
-                
-                // Store customer in Firestore customers/{userId} collection
-                await customerDocRef.set({
-                    stripeId: customerId,
-                    email: email,
-                    created: admin.firestore.FieldValue.serverTimestamp(),
-                }, { merge: true });
-                
-                console.log(`Created Stripe customer ${customerId} and stored in Firestore for user ${userId}`);
+                try {
+                    const customer = await stripeClient.customers.create({
+                        email: email,
+                        metadata: {
+                            firebaseUID: userId,
+                        },
+                    });
+                    customerId = customer.id;
+                    
+                    // Store customer in Firestore customers/{userId} collection
+                    await customerDocRef.set({
+                        stripeId: customerId,
+                        email: email,
+                        created: admin.firestore.FieldValue.serverTimestamp(),
+                    }, { merge: true });
+                    
+                    console.log(`Created Stripe customer ${customerId} and stored in Firestore for user ${userId}`);
+                } catch (customerError) {
+                    console.error('Error creating customer:', customerError);
+                    throw new Error('Failed to create Stripe customer');
+                }
             }
+            
+            // Metadata for both extension and custom handlers
+            const metadata = {
+                userId: userId,
+                firebaseUID: userId,
+            };
             
             // Create Checkout Session with customer ID
             const session = await stripeClient.checkout.sessions.create({
@@ -111,15 +122,9 @@ exports.createCheckoutSession = onCall(
                 ],
                 customer: customerId,
                 client_reference_id: userId,
-                metadata: {
-                    userId: userId,
-                    firebaseUID: userId,
-                },
+                metadata: metadata,
                 subscription_data: {
-                    metadata: {
-                        userId: userId,
-                        firebaseUID: userId,
-                    },
+                    metadata: metadata,
                 },
                 success_url: 'https://www.drawercheckout.com/success.html',
                 cancel_url: 'https://www.drawercheckout.com/',
