@@ -191,8 +191,8 @@ exports.createCheckoutSession = onRequest(
           },
         ],
         mode: 'subscription',
-        success_url: 'https://drawercheckout.com/success.html',
-        cancel_url: 'https://drawercheckout.com/',
+        success_url: 'https://www.drawercheckout.com/success.html',
+        cancel_url: 'https://www.drawercheckout.com/',
         client_reference_id: userId,
         customer_email: userEmail,
         metadata: {
