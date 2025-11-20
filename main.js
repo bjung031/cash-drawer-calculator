@@ -271,8 +271,8 @@ document.getElementById('targetInput')?.addEventListener('input',()=>{
     safeSave();
 });
 
-/* ==================== SIMPLE STRIPE LINK UPGRADE ==================== */
-/* ==================== UPGRADE BUTTON – PAYMENT LINK ==================== */
+/* ==================== STRIPE API UPGRADE ==================== */
+/* ==================== UPGRADE BUTTON – Stripe Checkout API ==================== */
 function attachUpgradeButton() {
     const btn = document.getElementById('upgradeToSupporterBtn');
     if (!btn) return;
@@ -281,7 +281,7 @@ function attachUpgradeButton() {
     const newBtn = btn.cloneNode(true);
     btn.replaceWith(newBtn);
 
-    newBtn.addEventListener('click', () => {
+    newBtn.addEventListener('click', async () => {
         const user = firebase.auth().currentUser;
         if (!user) {
             alert('Please log in to upgrade.');
@@ -289,17 +289,37 @@ function attachUpgradeButton() {
             return;
         }
 
-        // Build dynamic payment link
-        const baseUrl = 'https://buy.stripe.com/test_dRm14n9RS4pYbcxfj84Ni00';
-        const uid = user.uid;
-        const email = encodeURIComponent(user.email || '');
-        const successUrl = encodeURIComponent('https://drawercheckout.com/success.html');
-        const cancelUrl = encodeURIComponent('https://drawercheckout.com/');
+        try {
+            // Disable button and show loading state
+            newBtn.disabled = true;
+            newBtn.textContent = 'Processing...';
 
-        const fullUrl = `${baseUrl}?client_reference_id=${uid}&prefilled_email=${email}&success_url=${successUrl}&cancel_url=${cancelUrl}`;
+            // Get the user's ID token for authentication
+            const idToken = await user.getIdToken();
 
-        // Redirect to Stripe
-        window.location.href = fullUrl;
+            // Call the Cloud Function to create a Checkout Session
+            const response = await fetch('https://us-central1-backend-c191a.cloudfunctions.net/createCheckoutSession', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to create checkout session');
+            }
+
+            const data = await response.json();
+
+            // Redirect to Stripe Checkout
+            window.location.href = data.sessionUrl;
+        } catch (error) {
+            console.error('Error creating checkout session:', error);
+            alert('Failed to start checkout. Please try again.');
+            newBtn.disabled = false;
+            newBtn.textContent = 'Upgrade to Supporter';
+        }
     });
 }
 
@@ -342,5 +362,6 @@ document.getElementById('privacyBackBtn')?.addEventListener('click',()=>showScre
 document.getElementById('loginBtn')?.addEventListener('click',login);
 document.getElementById('signupBtn')?.addEventListener('click',signup);
 document.getElementById('deleteAccountBtn')?.addEventListener('click',deleteAccount);
+document.getElementById('darkModeToggle')?.addEventListener('change', window.toggleDarkMode);
 document.getElementById('target')?.addEventListener('input',recalculateRemoval);
-document.getElementById('target')?.addEventListener(' Loan',recalculateRemoval);
+document.getElementById('target')?.addEventListener('change',recalculateRemoval);

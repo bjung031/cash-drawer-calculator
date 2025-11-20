@@ -111,7 +111,7 @@ async function handleSubscriptionUpdate(subscription) {
     const userId = customersSnapshot.docs[0].id; // Firebase user ID
 
     // Update the user's tier in the `users` collection based on subscription status
-    if (subscriptionStatus === "active") {
+    if (subscriptionStatus === "active" || subscriptionStatus === "trialing") {
       await admin.firestore().collection(USERS_PATH).doc(userId).set(
         {
           tier: "supporter", // Upgrade user's tier
@@ -124,11 +124,11 @@ async function handleSubscriptionUpdate(subscription) {
       // Downgrade user if subscription is canceled or not active
       await admin.firestore().collection(USERS_PATH).doc(userId).set(
         {
-          tier: "guest", // Downgrade to guest or base tier
+          tier: "user", // Downgrade to user tier (not guest)
         },
         { merge: true }
       );
-      console.log(`User "${userId}" tier downgraded due to subscription status: ${subscriptionStatus}.`);
+      console.log(`User "${userId}" tier downgraded to "user" due to subscription status: ${subscriptionStatus}.`);
     }
   } catch (error) {
     console.error("Failed to handle subscription update:", error.message);
@@ -137,3 +137,74 @@ async function handleSubscriptionUpdate(subscription) {
 
 // Set global options for Firebase functions (optimize cold starts)
 setGlobalOptions({ maxInstances: 10 });
+
+// Callable function to create a Stripe Checkout Session
+exports.createCheckoutSession = onRequest(
+  {
+    region: "us-central1",
+    secrets: ["STRIPE_SECRET_KEY", "STRIPE_PRICE_ID"],
+    cors: true,
+  },
+  async (req, res) => {
+    // Enable CORS for browser requests
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    if (req.method === 'OPTIONS') {
+      return res.status(204).send('');
+    }
+
+    if (req.method !== "POST") {
+      return res.status(405).send("Method Not Allowed");
+    }
+
+    try {
+      const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
+      
+      // Get user ID from authorization header (Firebase Auth token)
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+      }
+
+      const idToken = authHeader.split('Bearer ')[1];
+      let decodedToken;
+      
+      try {
+        decodedToken = await admin.auth().verifyIdToken(idToken);
+      } catch (error) {
+        console.error('Token verification failed:', error);
+        return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+      }
+
+      const userId = decodedToken.uid;
+      const userEmail = decodedToken.email || '';
+
+      // Create Stripe Checkout Session
+      const session = await stripeClient.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price: process.env.STRIPE_PRICE_ID,
+            quantity: 1,
+          },
+        ],
+        mode: 'subscription',
+        success_url: 'https://drawercheckout.com/success.html',
+        cancel_url: 'https://drawercheckout.com/',
+        client_reference_id: userId,
+        customer_email: userEmail,
+        metadata: {
+          userId: userId,
+        },
+      });
+
+      console.log(`Created checkout session for user ${userId}: ${session.id}`);
+      res.json({ sessionUrl: session.url });
+    } catch (error) {
+      console.error("Error creating checkout session:", error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
