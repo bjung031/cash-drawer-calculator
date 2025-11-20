@@ -86,6 +86,7 @@ exports.createCheckoutSession = onCall(
                         email: email,
                         metadata: {
                             firebaseUID: userId,
+                            userId: userId,
                         },
                     });
                     customerId = customer.id;
@@ -100,7 +101,8 @@ exports.createCheckoutSession = onCall(
                     console.log(`Created Stripe customer ${customerId} and stored in Firestore for user ${userId}`);
                 } catch (customerError) {
                     console.error('Error creating customer:', customerError);
-                    throw new Error(`Failed to create Stripe customer: ${customerError.message}`);
+                    const errorMessage = customerError?.message || customerError || 'Unknown error';
+                    throw new Error(`Failed to create Stripe customer: ${errorMessage}`);
                 }
             }
             
