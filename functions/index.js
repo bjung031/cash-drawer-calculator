@@ -66,8 +66,40 @@ exports.createCheckoutSession = onCall(
             
             // Initialize Stripe
             const stripeClient = stripe(stripeSecretKey.value());
+            const db = admin.firestore();
             
-            // Create Checkout Session
+            // Check if customer document already exists in Firestore
+            const customerDocRef = db.collection('customers').doc(userId);
+            const customerDoc = await customerDocRef.get();
+            
+            let customerId;
+            
+            if (customerDoc.exists && customerDoc.data().stripeId) {
+                // Use existing Stripe customer ID
+                customerId = customerDoc.data().stripeId;
+                console.log(`Using existing Stripe customer ${customerId} for user ${userId}`);
+            } else {
+                // Create new Stripe customer
+                console.log(`Creating new Stripe customer for user ${userId}`);
+                const customer = await stripeClient.customers.create({
+                    email: email,
+                    metadata: {
+                        firebaseUID: userId,
+                    },
+                });
+                customerId = customer.id;
+                
+                // Store customer in Firestore customers/{userId} collection
+                await customerDocRef.set({
+                    stripeId: customerId,
+                    email: email,
+                    created: admin.firestore.FieldValue.serverTimestamp(),
+                }, { merge: true });
+                
+                console.log(`Created Stripe customer ${customerId} and stored in Firestore for user ${userId}`);
+            }
+            
+            // Create Checkout Session with customer ID
             const session = await stripeClient.checkout.sessions.create({
                 mode: 'subscription',
                 payment_method_types: ['card'],
@@ -77,14 +109,23 @@ exports.createCheckoutSession = onCall(
                         quantity: 1,
                     },
                 ],
-                customer_email: email,
+                customer: customerId,
                 client_reference_id: userId,
                 metadata: {
                     userId: userId,
+                    firebaseUID: userId,
+                },
+                subscription_data: {
+                    metadata: {
+                        userId: userId,
+                        firebaseUID: userId,
+                    },
                 },
                 success_url: 'https://www.drawercheckout.com/success.html',
                 cancel_url: 'https://www.drawercheckout.com/',
             });
+            
+            console.log(`Created checkout session ${session.id} for user ${userId}`);
             
             // Return session info (onCall automatically wraps this in data field)
             return {
@@ -185,7 +226,7 @@ function getTierFromStatus(status) {
 async function handleCheckoutCompleted(session) {
     console.log('Checkout completed:', session.id);
     
-    const userId = session.client_reference_id || session.metadata?.userId;
+    const userId = session.client_reference_id || session.metadata?.firebaseUID || session.metadata?.userId;
     const customerId = session.customer;
     
     if (!userId) {
@@ -215,7 +256,7 @@ async function handleSubscriptionCreated(subscription) {
     console.log('Subscription created:', subscription.id);
     
     const status = subscription.status;
-    const userId = subscription.metadata?.userId;
+    const userId = subscription.metadata?.firebaseUID || subscription.metadata?.userId;
     
     if (!userId) {
         console.error(`No userId found in subscription metadata for subscription ${subscription.id}`);
@@ -245,7 +286,7 @@ async function handleSubscriptionUpdated(subscription) {
     console.log('Subscription updated:', subscription.id);
     
     const status = subscription.status;
-    const userId = subscription.metadata?.userId;
+    const userId = subscription.metadata?.firebaseUID || subscription.metadata?.userId;
     
     if (!userId) {
         console.error(`No userId found in subscription metadata for subscription ${subscription.id}`);
@@ -274,7 +315,7 @@ async function handleSubscriptionUpdated(subscription) {
 async function handleSubscriptionDeleted(subscription) {
     console.log('Subscription deleted:', subscription.id);
     
-    const userId = subscription.metadata?.userId;
+    const userId = subscription.metadata?.firebaseUID || subscription.metadata?.userId;
     
     if (!userId) {
         console.error(`No userId found in subscription metadata for subscription ${subscription.id}`);
