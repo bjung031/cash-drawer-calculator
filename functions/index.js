@@ -218,7 +218,7 @@ async function handleSubscriptionCreated(subscription) {
     const userId = subscription.metadata?.userId;
     
     if (!userId) {
-        console.error('No userId found in subscription metadata');
+        console.error(`No userId found in subscription metadata for subscription ${subscription.id}`);
         return;
     }
     
@@ -248,7 +248,7 @@ async function handleSubscriptionUpdated(subscription) {
     const userId = subscription.metadata?.userId;
     
     if (!userId) {
-        console.error('No userId found in subscription metadata');
+        console.error(`No userId found in subscription metadata for subscription ${subscription.id}`);
         return;
     }
     
@@ -277,7 +277,7 @@ async function handleSubscriptionDeleted(subscription) {
     const userId = subscription.metadata?.userId;
     
     if (!userId) {
-        console.error('No userId found in subscription metadata');
+        console.error(`No userId found in subscription metadata for subscription ${subscription.id}`);
         return;
     }
     
