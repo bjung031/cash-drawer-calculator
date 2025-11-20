@@ -149,7 +149,7 @@ async function handleSubscriptionUpdate(subscription) {
 exports.createCheckoutSession = onRequest(
   {
     region: "us-central1",
-    secrets: ["STRIPE_SECRET_KEY"],
+    secrets: ["STRIPE_SECRET_KEY", "STRIPE_PRICE_ID"],
     cors: true, // Enable CORS for frontend calls
   },
   async (req, res) => {
@@ -177,13 +177,16 @@ exports.createCheckoutSession = onRequest(
       // Initialize Stripe
       const stripeClient = stripe(process.env.STRIPE_SECRET_KEY);
 
+      // Get Price ID from environment variable or use default
+      const priceId = process.env.STRIPE_PRICE_ID || "price_1QY8XzIBG9c10siBCf2aZITZ";
+
       // Create Checkout Session
       const session = await stripeClient.checkout.sessions.create({
         mode: "subscription",
         payment_method_types: ["card"],
         line_items: [
           {
-            price: "price_1QY8XzIBG9c10siBCf2aZITZ", // Replace with your Stripe Price ID
+            price: priceId,
             quantity: 1,
           },
         ],
