@@ -154,9 +154,18 @@ exports.createCheckoutSession = onRequest(
   },
   async (req, res) => {
     // Enable CORS
-    res.set('Access-Control-Allow-Origin', '*');
+    const allowedOrigins = ['https://drawercheckout.com', 'http://localhost:5000', 'http://127.0.0.1:5000'];
+    const origin = req.headers.origin;
+    
+    if (allowedOrigins.includes(origin)) {
+      res.set('Access-Control-Allow-Origin', origin);
+    } else {
+      res.set('Access-Control-Allow-Origin', 'https://drawercheckout.com');
+    }
+    
     res.set('Access-Control-Allow-Methods', 'GET, POST');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
+    res.set('Access-Control-Allow-Credentials', 'true');
 
     // Handle preflight requests
     if (req.method === 'OPTIONS') {
