@@ -101,12 +101,13 @@ exports.createCheckoutSession = onCall(
                     console.log(`Created Stripe customer ${customerId} and stored in Firestore for user ${userId}`);
                 } catch (customerError) {
                     console.error('Error creating customer:', customerError);
-                    const errorMessage = customerError?.message || customerError || 'Unknown error';
+                    const errorMessage = customerError?.message || JSON.stringify(customerError);
                     throw new Error(`Failed to create Stripe customer: ${errorMessage}`);
                 }
             }
             
             // Metadata for both extension and custom handlers
+            // Note: Both fields contain the same userId value because:
             // - firebaseUID: Required by Stripe Firebase Extension
             // - userId: Used by custom webhook handlers for backward compatibility
             const metadata = {
