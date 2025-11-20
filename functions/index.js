@@ -170,20 +170,7 @@ exports.stripeWebhook = onRequest(
     }
 );
 
-/**
- * Helper function to find user by Stripe customer ID
- */
-async function findUserByCustomerId(customerId) {
-    const db = admin.firestore();
-    const customersRef = db.collection('customers');
-    const snapshot = await customersRef.where('stripeCustomerId', '==', customerId).limit(1).get();
-    
-    if (snapshot.empty) {
-        return null;
-    }
-    
-    return snapshot.docs[0].id;
-}
+
 
 /**
  * Helper function to determine tier based on subscription status
@@ -218,16 +205,6 @@ async function handleCheckoutCompleted(session) {
         { merge: true }
     );
     
-    // Store customer information
-    await db.collection('customers').doc(userId).set(
-        {
-            stripeCustomerId: customerId,
-            tier: 'supporter',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-    );
-    
     console.log(`User ${userId} upgraded to supporter`);
 }
 
@@ -237,14 +214,11 @@ async function handleCheckoutCompleted(session) {
 async function handleSubscriptionCreated(subscription) {
     console.log('Subscription created:', subscription.id);
     
-    const customerId = subscription.customer;
     const status = subscription.status;
-    
-    // Find user by customer ID
-    const userId = await findUserByCustomerId(customerId);
+    const userId = subscription.metadata?.userId;
     
     if (!userId) {
-        console.log('No user found for customer:', customerId);
+        console.error('No userId found in subscription metadata');
         return;
     }
     
@@ -253,16 +227,6 @@ async function handleSubscriptionCreated(subscription) {
     
     // Update user tier
     await db.collection('users').doc(userId).set(
-        {
-            tier: tier,
-            subscriptionStatus: status,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-    );
-    
-    // Update customer record
-    await db.collection('customers').doc(userId).set(
         {
             tier: tier,
             subscriptionStatus: status,
@@ -280,14 +244,11 @@ async function handleSubscriptionCreated(subscription) {
 async function handleSubscriptionUpdated(subscription) {
     console.log('Subscription updated:', subscription.id);
     
-    const customerId = subscription.customer;
     const status = subscription.status;
-    
-    // Find user by customer ID
-    const userId = await findUserByCustomerId(customerId);
+    const userId = subscription.metadata?.userId;
     
     if (!userId) {
-        console.log('No user found for customer:', customerId);
+        console.error('No userId found in subscription metadata');
         return;
     }
     
@@ -296,16 +257,6 @@ async function handleSubscriptionUpdated(subscription) {
     
     // Update user tier
     await db.collection('users').doc(userId).set(
-        {
-            tier: tier,
-            subscriptionStatus: status,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-    );
-    
-    // Update customer record
-    await db.collection('customers').doc(userId).set(
         {
             tier: tier,
             subscriptionStatus: status,
@@ -323,13 +274,10 @@ async function handleSubscriptionUpdated(subscription) {
 async function handleSubscriptionDeleted(subscription) {
     console.log('Subscription deleted:', subscription.id);
     
-    const customerId = subscription.customer;
-    
-    // Find user by customer ID
-    const userId = await findUserByCustomerId(customerId);
+    const userId = subscription.metadata?.userId;
     
     if (!userId) {
-        console.log('No user found for customer:', customerId);
+        console.error('No userId found in subscription metadata');
         return;
     }
     
@@ -337,16 +285,6 @@ async function handleSubscriptionDeleted(subscription) {
     
     // Downgrade user tier to 'user'
     await db.collection('users').doc(userId).set(
-        {
-            tier: 'user',
-            subscriptionStatus: 'canceled',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-    );
-    
-    // Update customer record
-    await db.collection('customers').doc(userId).set(
         {
             tier: 'user',
             subscriptionStatus: 'canceled',
