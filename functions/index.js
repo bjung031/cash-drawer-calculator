@@ -171,6 +171,28 @@ exports.stripeWebhook = onRequest(
 );
 
 /**
+ * Helper function to find user by Stripe customer ID
+ */
+async function findUserByCustomerId(customerId) {
+    const db = admin.firestore();
+    const customersRef = db.collection('customers');
+    const snapshot = await customersRef.where('stripeCustomerId', '==', customerId).limit(1).get();
+    
+    if (snapshot.empty) {
+        return null;
+    }
+    
+    return snapshot.docs[0].id;
+}
+
+/**
+ * Helper function to determine tier based on subscription status
+ */
+function getTierFromStatus(status) {
+    return (status === 'active' || status === 'trialing') ? 'supporter' : 'user';
+}
+
+/**
  * Handle checkout.session.completed event
  */
 async function handleCheckoutCompleted(session) {
@@ -219,17 +241,15 @@ async function handleSubscriptionCreated(subscription) {
     const status = subscription.status;
     
     // Find user by customer ID
-    const db = admin.firestore();
-    const customersRef = db.collection('customers');
-    const snapshot = await customersRef.where('stripeCustomerId', '==', customerId).limit(1).get();
+    const userId = await findUserByCustomerId(customerId);
     
-    if (snapshot.empty) {
+    if (!userId) {
         console.log('No user found for customer:', customerId);
         return;
     }
     
-    const userId = snapshot.docs[0].id;
-    const tier = (status === 'active' || status === 'trialing') ? 'supporter' : 'user';
+    const tier = getTierFromStatus(status);
+    const db = admin.firestore();
     
     // Update user tier
     await db.collection('users').doc(userId).set(
@@ -264,17 +284,15 @@ async function handleSubscriptionUpdated(subscription) {
     const status = subscription.status;
     
     // Find user by customer ID
-    const db = admin.firestore();
-    const customersRef = db.collection('customers');
-    const snapshot = await customersRef.where('stripeCustomerId', '==', customerId).limit(1).get();
+    const userId = await findUserByCustomerId(customerId);
     
-    if (snapshot.empty) {
+    if (!userId) {
         console.log('No user found for customer:', customerId);
         return;
     }
     
-    const userId = snapshot.docs[0].id;
-    const tier = (status === 'active' || status === 'trialing') ? 'supporter' : 'user';
+    const tier = getTierFromStatus(status);
+    const db = admin.firestore();
     
     // Update user tier
     await db.collection('users').doc(userId).set(
@@ -308,16 +326,14 @@ async function handleSubscriptionDeleted(subscription) {
     const customerId = subscription.customer;
     
     // Find user by customer ID
-    const db = admin.firestore();
-    const customersRef = db.collection('customers');
-    const snapshot = await customersRef.where('stripeCustomerId', '==', customerId).limit(1).get();
+    const userId = await findUserByCustomerId(customerId);
     
-    if (snapshot.empty) {
+    if (!userId) {
         console.log('No user found for customer:', customerId);
         return;
     }
     
-    const userId = snapshot.docs[0].id;
+    const db = admin.firestore();
     
     // Downgrade user tier to 'user'
     await db.collection('users').doc(userId).set(
