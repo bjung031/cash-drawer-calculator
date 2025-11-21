@@ -238,6 +238,7 @@ async function handleCheckoutCompleted(session) {
     
     const userId = session.client_reference_id || session.metadata?.firebaseUID || session.metadata?.userId;
     const customerId = session.customer;
+    const subscriptionId = session.subscription;
     
     if (!userId) {
         console.error('No userId found in checkout session');
@@ -246,11 +247,29 @@ async function handleCheckoutCompleted(session) {
     
     const db = admin.firestore();
     
-    // Update user tier to supporter
+    // If we have a subscription ID, update its metadata to ensure future webhook events have userId
+    if (subscriptionId) {
+        try {
+            const stripeClient = stripe(stripeSecretKey.value());
+            await stripeClient.subscriptions.update(subscriptionId, {
+                metadata: {
+                    firebaseUID: userId,
+                    userId: userId,
+                },
+            });
+            console.log(`Updated subscription ${subscriptionId} with userId metadata`);
+        } catch (error) {
+            console.error(`Failed to update subscription metadata for ${subscriptionId}:`, error);
+            // Continue with tier update even if metadata update fails
+        }
+    }
+    
+    // Update user tier to supporter and store subscription ID
     await db.collection('users').doc(userId).set(
         {
             tier: 'supporter',
             stripeCustomerId: customerId,
+            subscriptionId: subscriptionId,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
